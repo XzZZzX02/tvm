@@ -39,6 +39,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -171,6 +172,18 @@ class SketchPolicyNode : public SearchPolicyNode {
 
   /*! \brief The minimul output population of SampleInitPopulation */
   int sample_init_min_pop_;
+
+  /*! \brief Count how many times each sketch has been selected. */
+  std::vector<int> sketch_selection_counts_;
+  /*! \brief Best observed cost for each sketch. */
+  std::vector<double> sketch_best_costs_;
+  /*! \brief Total number of samples drawn from sketches. */
+  int total_sample_counts_ = 0;
+  /*! \brief Track mapping from states to their originating sketch id. */
+  std::unordered_map<State, int, ObjectHash, ObjectEqual> state_sketch_ids_;
+
+  int GetSketchId(const State& state) const;
+  void SetSketchId(const State& state, int sketch_id);
 
   friend class SketchPolicy;
 };

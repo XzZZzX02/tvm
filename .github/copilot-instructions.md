@@ -1,0 +1,21 @@
+# Apache TVM – AI Agent Guide
+
+- Scope: TVM is a deep-learning compiler stack; use the Python front-end and C++ core layout documented in [README.md](../README.md) and [src/README.md](../src/README.md).
+- Source layout: public headers live in `include/`; C++ implementation modules (arith, relay, tir, runtime, te, topi, etc.) live in `src/`; add new APIs to `include/tvm` and implementation in the matching `src` module.
+- Examples and integrations: see [apps/README.md](../apps/README.md) for extension samples (RPC, benchmarks, wasm, deployment) before adding new app-level code.
+- Build from source (host): create `build/`, copy [cmake/config.cmake](../cmake/config.cmake), then append options (e.g., `CMAKE_BUILD_TYPE`, `USE_LLVM`, GPU toggles) as in [docs/install/from_source.rst](../docs/install/from_source.rst); build with `cmake .. && cmake --build . --parallel $(nproc)`.
+- Install Python bindings: either export `TVM_HOME`/`PYTHONPATH=$TVM_HOME/python` or `pip install -e ./python` with `TVM_LIBRARY_PATH` pointing at your build output (see validation steps in [docs/install/from_source.rst](../docs/install/from_source.rst)).
+- Build features: enable GPUs by flipping `USE_CUDA/USE_CUDNN/USE_CUTLASS` (or `USE_VULKAN`, `USE_OPENCL`, etc.) in `config.cmake`; set `HIDE_PRIVATE_SYMBOLS ON` to avoid LLVM symbol clashes (recommended in docs).
+- Reproducible environments: prefer Docker helpers in [docker/README.md](../docker/README.md); `./docker/bash.sh <image>` for interactive shells or `./docker/build.sh <image> <cmd>` to build+run (images named `ci_*`, `demo_*`).
+- CI parity via Docker: use `python3 tests/scripts/ci.py <target>` to mirror Jenkins/GitHub workflows (see [tests/scripts/ci.py](../tests/scripts/ci.py)); example targets: `lint`, `docs`, `cpu`, `gpu`, `minimal`, `arm`, `wasm`, `hexagon`, `adreno`.
+- Test selection: append flags like `--unittest`, `--cpp`, `--frontend`, `--integration`, or `--tests path::TestClass` to `ci.py` commands; `--interactive` drops into the container after scripts finish.
+- Linting: `python3 tests/scripts/ci.py lint` (use `--fix` to apply clang-format/black). Lint scripts live in `tests/lint/` and are invoked by CI.
+- Docs build: `python3 tests/scripts/ci.py docs` (uses GPU image by default; set `--cpu` or `TVM_TUTORIAL_EXEC_PATTERN=none` for CPU-only); serve with `python3 tests/scripts/ci.py serve-docs` (see [docs/README.md](../docs/README.md)).
+- Direct tests without Docker: task shells in `tests/scripts/` (e.g., `task_python_unittest.sh`, `task_cpp_unittest.sh`) run against a prepared build directory; set `TVM_LIBRARY_PATH` to pick the build.
+- Common env knobs: `USE_SCCACHE` for cached builds inside CI images; `TVM_TUTORIAL_EXEC_PATTERN` to limit tutorials during doc builds; `ADRENO_OPENCL`/`ANDROID_SERIAL` for Adreno tasks.
+- Documentation sources live under [docs/](../docs); tutorials execute during doc builds unless filtered.
+- Testing layout: unit/integration Python tests live in `tests/python/`; C++ tests in `tests/cpp*/`; runtime checks in `tests/cpp-runtime/`.
+- When touching CI: Jenkins templates live in `ci/jenkins/templates/` (regenerate via `make` in `ci/jenkins`); Dockerfiles in `docker/` are built nightly (see [ci/README.md](../ci/README.md)).
+- Contribution expectation: align new functionality with existing module boundaries (Relay high-level, TIR/TE for lowerings, TOPI operators, Runtime minimal deps), and mirror existing operator patterns in `src/topi` / `python/tvm/topi`.
+- Performance work: prefer adding schedules/auto-tuning entries in TOPI/AutoTVM/auto_scheduler modules rather than ad-hoc kernels; reuse CUTLASS/FlashInfer integrations under `3rdparty/` when relevant.
+- Minimal reproduction guidance: use `ci.py` with the matching target image (cpu/gpu/etc.) to reproduce failures locally before modifying CI scripts.

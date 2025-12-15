@@ -241,7 +241,7 @@ class TaskScheduler:
         )
 
         assert len(self.tasks) != 0, "No tasks"
-        assert self.strategy in ["round-robin", "gradient"]
+        assert self.strategy in ["round-robin", "gradient", "bansor"]
 
         # task_cts[i] saves how many times task i is tuned
         self.task_cts = [0 for _ in range(len(self.tasks))]
@@ -370,7 +370,7 @@ class TaskScheduler:
                 task_idx = (task_idx + 1) % len(self.tasks)
                 while task_idx in self.dead_tasks:
                     task_idx = (task_idx + 1) % len(self.tasks)
-            elif self.strategy == "gradient":
+            elif self.strategy in ["gradient", "bansor"]:
                 gradients = []
 
                 for i in range(len(self.tasks)):
@@ -424,10 +424,37 @@ class TaskScheduler:
                     assert grad <= 0
                     gradients.append(grad)
 
-                if max(gradients) == min(gradients):
-                    task_idx = np.random.choice(len(gradients))
+                if self.strategy == "gradient":
+                    if max(gradients) == min(gradients):
+                        task_idx = np.random.choice(len(gradients))
+                    else:
+                        task_idx = np.argmin(gradients)
                 else:
-                    task_idx = np.argmin(gradients)
+                    abs_grads = [abs(g) for g in gradients]
+                    max_abs = max(abs_grads)
+                    if max_abs == 0:
+                        norm_rewards = [0.0 for _ in abs_grads]
+                    else:
+                        norm_rewards = [g / max_abs for g in abs_grads]
+
+                    ucb_scores = []
+                    exploration_const = 0.3
+                    total_rounds = max(self.ct, 1)
+                    for idx, reward in enumerate(norm_rewards):
+                        count = self.task_cts[idx]
+                        if idx in self.dead_tasks:
+                            ucb_scores.append(float("-inf"))
+                            continue
+                        if count == 0:
+                            # Force every task to be selected at least once
+                            ucb_scores.append(float("inf"))
+                            continue
+                        explore = exploration_const * math.sqrt(
+                            2.0 * math.log(total_rounds) / count
+                        )
+                        ucb_scores.append(reward + explore)
+
+                    task_idx = int(np.argmax(ucb_scores))
             else:
                 raise ValueError("Invalid strategy: " + self.strategy)
 

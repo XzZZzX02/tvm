@@ -30,6 +30,7 @@
 #include <tvm/support/parallel_for.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 #include <limits>
 #include <memory>
@@ -156,6 +157,18 @@ SketchPolicy::SketchPolicy(SearchTask task, CostModel program_cost_model,
   data_ = std::move(node);
 }
 
+int SketchPolicyNode::GetSketchId(const State& state) const {
+  auto it = state_sketch_ids_.find(state);
+  if (it == state_sketch_ids_.end()) {
+    return -1;
+  }
+  return it->second;
+}
+
+void SketchPolicyNode::SetSketchId(const State& state, int sketch_id) {
+  state_sketch_ids_[state] = sketch_id;
+}
+
 State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure_per_iter,
                                ProgramMeasurer measurer) {
   num_measure_per_iter_ = num_measure_per_iter;
@@ -219,6 +232,16 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
       ct += inputs.size();
 
+      for (size_t i = 0; i < results.size(); ++i) {
+        int sketch_id = GetSketchId(inputs[i]->state);
+        if (sketch_id >= 0 && sketch_id < static_cast<int>(sketch_best_costs_.size())) {
+          double cost = FloatArrayMean(results[i]->costs);
+          if (cost < sketch_best_costs_[sketch_id]) {
+            sketch_best_costs_[sketch_id] = cost;
+          }
+        }
+      }
+
       // Check if reach the early stopping condition
       if (ct - measurer->best_ct[search_task->workload_key] > early_stopping &&
           measurer->has_valid.count(search_task->workload_key)) {
@@ -263,6 +286,16 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
   // Measure candidate states
   PrintTitle("Measure", verbose);
   results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
+
+  for (size_t i = 0; i < results.size(); ++i) {
+    int sketch_id = GetSketchId(inputs[i]->state);
+    if (sketch_id >= 0 && sketch_id < static_cast<int>(sketch_best_costs_.size())) {
+      double cost = FloatArrayMean(results[i]->costs);
+      if (cost < sketch_best_costs_[sketch_id]) {
+        sketch_best_costs_[sketch_id] = cost;
+      }
+    }
+  }
 
   // Update measured states throughputs. These states will join the EvolutionarySearch in later
   // search rounds.
@@ -395,29 +428,82 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
     rand_gens.push_back(std::mt19937(rand_gen()));
   }
 
+  if (sketch_selection_counts_.size() != sketches.size()) {
+    sketch_selection_counts_.assign(sketches.size(), 0);
+    sketch_best_costs_.assign(sketches.size(), std::numeric_limits<double>::infinity());
+    total_sample_counts_ = 0;
+    state_sketch_ids_.clear();
+  }
+
   std::unordered_set<std::string> explored_state_strs;
   size_t iter = 1;
   size_t unchange_cnt = 0;
   while (static_cast<int>(out_states.size()) < sample_init_min_pop_) {
     std::vector<State> temp_states(population);
+    std::vector<int> chosen_sketches(population, 0);
 
-    // Sample a batch of states randomly
-    support::parallel_for(0, population, [this, &temp_states, &sketches, &rand_gens](int index) {
-      // Randomly choose a sketch
-      State tmp_s = sketches[(rand_gens[index])() % sketches.size()];
-      // Apply random annotation rules one by one
-      bool valid = true;
-      for (const auto& rule : init_rules) {
-        if (rule->Apply(this, &tmp_s, &rand_gens[index]) ==
-            PopulationGenerationRule::ResultKind::kInvalid) {
-          valid = false;
+    double global_best_cost = std::numeric_limits<double>::infinity();
+    for (double c : sketch_best_costs_) {
+      if (c < global_best_cost) {
+        global_best_cost = c;
+      }
+    }
+    if (!std::isfinite(global_best_cost)) {
+      global_best_cost = 1.0;
+    }
+
+    auto select_sketch = [&](int /*unused*/) {
+      int best_idx = 0;
+      double best_score = -1.0;
+      for (size_t idx = 0; idx < sketches.size(); ++idx) {
+        int count = sketch_selection_counts_[idx];
+        if (count == 0) {
+          best_idx = static_cast<int>(idx);
+          best_score = std::numeric_limits<double>::infinity();
           break;
         }
+
+        double exploit = 0.0;
+        if (std::isfinite(sketch_best_costs_[idx]) && sketch_best_costs_[idx] > 0) {
+          exploit = global_best_cost / sketch_best_costs_[idx];
+        }
+
+        double explore = 0.3 *
+                         std::sqrt(2.0 * std::log(static_cast<double>(std::max(total_sample_counts_, 1))) /
+                                   static_cast<double>(count));
+        double score = exploit + explore;
+        if (score > best_score) {
+          best_score = score;
+          best_idx = static_cast<int>(idx);
+        }
       }
-      if (valid) {
-        temp_states[index] = std::move(tmp_s);
-      }
-    });
+      sketch_selection_counts_[best_idx]++;
+      total_sample_counts_++;
+      return best_idx;
+    };
+
+    for (int i = 0; i < population; ++i) {
+      chosen_sketches[i] = select_sketch(i);
+    }
+
+    // Sample a batch of states guided by UCB over sketches
+    support::parallel_for(0, population,
+                          [this, &temp_states, &sketches, &rand_gens, &chosen_sketches](int index) {
+                            State tmp_s = sketches[chosen_sketches[index]];
+                            // Apply random annotation rules one by one
+                            bool valid = true;
+                            for (const auto& rule : init_rules) {
+                              if (rule->Apply(this, &tmp_s, &rand_gens[index]) ==
+                                  PopulationGenerationRule::ResultKind::kInvalid) {
+                                valid = false;
+                                break;
+                              }
+                            }
+                            if (valid) {
+                              SetSketchId(tmp_s, chosen_sketches[index]);
+                              temp_states[index] = std::move(tmp_s);
+                            }
+                          });
 
     // Filter out the states that were failed to apply initial rules
     Array<State> cand_states;
@@ -590,16 +676,19 @@ Array<State> SketchPolicyNode::EvolutionarySearch(const Array<State>& init_popul
     // Do mutation
     while (pnext->size() < population) {
       State tmp_s = (*pnow)[RandomChoose(pop_selection_probs, &rand_gen)];
+      int parent_sketch = GetSketchId(tmp_s);
 
       if (dis(rand_gen) < mutation_prob) {
         const auto& rule = mutation_rules[RandomChoose(rule_selection_probs, &rand_gen)];
         if (rule->Apply(this, &tmp_s, &rand_gen) == PopulationGenerationRule::ResultKind::kValid) {
+          SetSketchId(tmp_s, parent_sketch);
           pnext->push_back(std::move(tmp_s));
           mutation_success_ct++;
         } else {
           mutation_fail_ct++;
         }
       } else {
+        SetSketchId(tmp_s, parent_sketch);
         pnext->push_back(std::move(tmp_s));
       }
     }
