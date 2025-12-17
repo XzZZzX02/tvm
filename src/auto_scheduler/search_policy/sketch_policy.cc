@@ -421,7 +421,7 @@ Array<State> SketchPolicyNode::GenerateSketches() {
       StdCout(verbose) << "[bansor] sketch=" << i << " stages="
                        << out_states[i]->stages.size() << " steps="
                        << out_states[i]->transform_steps.size() << std::endl;
-      StdCout(verbose) << out_states[i]->ToStr() << std::endl;
+      StdCout(verbose) << out_states[i].ToStr() << std::endl;
     }
   }
   return out_states;
