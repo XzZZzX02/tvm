@@ -454,6 +454,15 @@ class TaskScheduler:
                         )
                         ucb_scores.append(reward + explore)
 
+                    if self.tune_option.verbose >= 2:
+                        logger.info(
+                            "[bansor] ct=%d rewards=%s counts=%s ucb=%s",
+                            self.ct,
+                            [round(r, 4) for r in norm_rewards],
+                            list(self.task_cts),
+                            [round(s, 4) if abs(s) != float("inf") else s for s in ucb_scores],
+                        )
+
                     task_idx = int(np.argmax(ucb_scores))
             else:
                 raise ValueError("Invalid strategy: " + self.strategy)

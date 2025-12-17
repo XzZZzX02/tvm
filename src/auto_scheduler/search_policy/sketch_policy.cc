@@ -293,6 +293,11 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
       double cost = FloatArrayMean(results[i]->costs);
       if (cost < sketch_best_costs_[sketch_id]) {
         sketch_best_costs_[sketch_id] = cost;
+        if (verbose >= 2) {
+          StdCout(verbose) << "[bansor] update best_cost sketch=" << sketch_id
+                           << " cost=" << cost << " total_samples=" << total_sample_counts_
+                           << std::endl;
+        }
       }
     }
   }
@@ -484,6 +489,29 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 
     for (int i = 0; i < population; ++i) {
       chosen_sketches[i] = select_sketch(i);
+    }
+
+    if (verbose >= 2) {
+      std::unordered_map<int, int> batch_counts;
+      for (int id : chosen_sketches) {
+        batch_counts[id]++;
+      }
+      int top_id = -1;
+      int top_ct = 0;
+      for (const auto& kv : batch_counts) {
+        if (kv.second > top_ct) {
+          top_id = kv.first;
+          top_ct = kv.second;
+        }
+      }
+      double min_cost = std::numeric_limits<double>::infinity();
+      for (double c : sketch_best_costs_) {
+        if (c < min_cost) min_cost = c;
+      }
+      StdCout(verbose) << "[bansor] batch_select count=" << population
+                       << " top_sketch=" << top_id << " top_freq=" << top_ct
+                       << " total_samples=" << total_sample_counts_ << " min_cost=" << min_cost
+                       << std::endl;
     }
 
     // Sample a batch of states guided by UCB over sketches
