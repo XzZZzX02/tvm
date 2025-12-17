@@ -416,6 +416,14 @@ Array<State> SketchPolicyNode::GenerateSketches() {
   }
 
   StdCout(verbose) << "Generate Sketches\t\t#s: " << out_states.size() << std::endl;
+  if (verbose >= 2) {
+    for (size_t i = 0; i < out_states.size(); ++i) {
+      StdCout(verbose) << "[bansor] sketch=" << i << " stages="
+                       << out_states[i]->stages.size() << " steps="
+                       << out_states[i]->transform_steps.size() << std::endl;
+      StdCout(verbose) << out_states[i]->ToStr() << std::endl;
+    }
+  }
   return out_states;
 }
 
@@ -438,6 +446,10 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
     sketch_best_costs_.assign(sketches.size(), std::numeric_limits<double>::infinity());
     total_sample_counts_ = 0;
     state_sketch_ids_.clear();
+    if (verbose >= 2) {
+      StdCout(verbose) << "[bansor] reset sketch stats size=" << sketches.size()
+                       << std::endl;
+    }
   }
 
   std::unordered_set<std::string> explored_state_strs;
@@ -455,6 +467,28 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
     }
     if (!std::isfinite(global_best_cost)) {
       global_best_cost = 1.0;
+    }
+
+    if (verbose >= 2) {
+      StdCout(verbose) << "[bansor] sketch_candidates=" << sketches.size()
+                       << " total_samples=" << total_sample_counts_
+                       << " global_best_cost=" << global_best_cost << std::endl;
+      for (size_t idx = 0; idx < sketches.size(); ++idx) {
+        int count = sketch_selection_counts_[idx];
+        double best = sketch_best_costs_[idx];
+        double exploit = 0.0;
+        if (std::isfinite(best) && best > 0) {
+          exploit = global_best_cost / best;
+        }
+        double explore = 0.3 *
+                         std::sqrt(2.0 *
+                                   std::log(static_cast<double>(std::max(total_sample_counts_, 1))) /
+                                   static_cast<double>(std::max(count, 1)));
+        double score = count == 0 ? std::numeric_limits<double>::infinity() : exploit + explore;
+        StdCout(verbose) << "[bansor] cand sketch=" << idx << " count=" << count
+                         << " best_cost=" << best << " exploit=" << exploit
+                         << " explore=" << explore << " score=" << score << std::endl;
+      }
     }
 
     auto select_sketch = [&](int /*unused*/) {
@@ -489,6 +523,14 @@ Array<State> SketchPolicyNode::SampleInitPopulation(const Array<State>& sketches
 
     for (int i = 0; i < population; ++i) {
       chosen_sketches[i] = select_sketch(i);
+    }
+
+    if (verbose >= 2) {
+      StdCout(verbose) << "[bansor] selection sequence:";
+      for (int id : chosen_sketches) {
+        StdCout(verbose) << " " << id;
+      }
+      StdCout(verbose) << std::endl;
     }
 
     if (verbose >= 2) {
