@@ -251,6 +251,9 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
       results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
       ct += inputs.size();
 
+      if (verbose >= 2 && sketch_best_costs_.empty()) {
+        StdCout(verbose) << "[bansor] warn: sketch_best_costs_ is empty during update" << std::endl;
+      }
       for (size_t i = 0; i < results.size(); ++i) {
         int sketch_id = GetSketchId(inputs[i]->state);
         if (sketch_id >= 0 && sketch_id < static_cast<int>(sketch_best_costs_.size())) {
@@ -263,6 +266,9 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
                                << std::endl;
             }
           }
+        } else if (verbose >= 2) {
+          StdCout(verbose) << "[bansor] skip update: sketch_id=" << sketch_id
+                           << " size=" << sketch_best_costs_.size() << std::endl;
         }
       }
 
@@ -330,6 +336,9 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
   PrintTitle("Measure", verbose);
   results = measurer->Measure(search_task, GetRef<SearchPolicy>(this), inputs);
 
+  if (verbose >= 2 && sketch_best_costs_.empty()) {
+    StdCout(verbose) << "[bansor] warn: sketch_best_costs_ is empty during update" << std::endl;
+  }
   for (size_t i = 0; i < results.size(); ++i) {
     int sketch_id = GetSketchId(inputs[i]->state);
     if (sketch_id >= 0 && sketch_id < static_cast<int>(sketch_best_costs_.size())) {
@@ -342,6 +351,9 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
                            << std::endl;
         }
       }
+    } else if (verbose >= 2) {
+      StdCout(verbose) << "[bansor] skip update: sketch_id=" << sketch_id
+                       << " size=" << sketch_best_costs_.size() << std::endl;
     }
   }
 
