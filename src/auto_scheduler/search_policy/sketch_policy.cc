@@ -202,11 +202,30 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
 
       // Search one round to get promising states
       PrintTitle("Search", verbose);
-      best_states = SearchOneRound(num_random * 3, &random_states);
+      Array<State> best_states_raw = SearchOneRound(num_random * 3, &random_states);
+      Array<State> random_states_raw = random_states;
 
       // Infer bound. This is necessary for computing the correct ToStr() for redundancy check
-      best_states = search_task->compute_dag.InferBound(best_states);
+      best_states = search_task->compute_dag.InferBound(best_states_raw);
       random_states = search_task->compute_dag.InferBound(random_states);
+
+      // Preserve sketch ids across InferBound, which returns new State objects
+      if (best_states.size() == best_states_raw.size()) {
+        for (size_t i = 0; i < best_states.size(); ++i) {
+          int sketch_id = GetSketchId(best_states_raw[i]);
+          if (sketch_id >= 0) {
+            SetSketchId(best_states[i], sketch_id);
+          }
+        }
+      }
+      if (random_states.size() == random_states_raw.size()) {
+        for (size_t i = 0; i < random_states.size(); ++i) {
+          int sketch_id = GetSketchId(random_states_raw[i]);
+          if (sketch_id >= 0) {
+            SetSketchId(random_states[i], sketch_id);
+          }
+        }
+      }
 
       // Pick `num_measure_per_iter` states to measure, check hash to remove already measured state
       // Also pick some random states to do eps-greedy
@@ -238,6 +257,11 @@ State SketchPolicyNode::Search(int n_trials, int early_stopping, int num_measure
           double cost = FloatArrayMean(results[i]->costs);
           if (cost < sketch_best_costs_[sketch_id]) {
             sketch_best_costs_[sketch_id] = cost;
+            if (verbose >= 2) {
+              StdCout(verbose) << "[bansor] update best_cost sketch=" << sketch_id
+                               << " cost=" << cost << " total_samples=" << total_sample_counts_
+                               << std::endl;
+            }
           }
         }
       }
@@ -273,11 +297,30 @@ std::pair<Array<MeasureInput>, Array<MeasureResult>> SketchPolicyNode::ContinueS
 
   // Search one round to get promising states
   PrintTitle("Search", verbose);
-  best_states = SearchOneRound(num_random * 3, &random_states);
+  Array<State> best_states_raw = SearchOneRound(num_random * 3, &random_states);
+  Array<State> random_states_raw = random_states;
 
   // Infer bound. This is necessary for computing the correct ToStr() for redundancy check
-  best_states = search_task->compute_dag.InferBound(best_states);
+  best_states = search_task->compute_dag.InferBound(best_states_raw);
   random_states = search_task->compute_dag.InferBound(random_states);
+
+  // Preserve sketch ids across InferBound, which returns new State objects
+  if (best_states.size() == best_states_raw.size()) {
+    for (size_t i = 0; i < best_states.size(); ++i) {
+      int sketch_id = GetSketchId(best_states_raw[i]);
+      if (sketch_id >= 0) {
+        SetSketchId(best_states[i], sketch_id);
+      }
+    }
+  }
+  if (random_states.size() == random_states_raw.size()) {
+    for (size_t i = 0; i < random_states.size(); ++i) {
+      int sketch_id = GetSketchId(random_states_raw[i]);
+      if (sketch_id >= 0) {
+        SetSketchId(random_states[i], sketch_id);
+      }
+    }
+  }
 
   // Pick `num_measure_per_iter` states to measure, check hash to remove already measured state
   // Also pick some random states to do eps-greedy
